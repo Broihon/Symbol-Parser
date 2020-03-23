@@ -1,0 +1,49 @@
+#pragma once
+
+#include <Windows.h>
+#include <string>
+#include <DbgHelp.h>
+#include <fstream>
+
+#define SYMBOL_ERR_SUCCESS						0x00000000
+#define SYMBOL_ERR_ALREADY_INITIALIZED			0x00000001
+#define SYMBOL_ERR_CANT_OPEN_MODULE				0x00000002
+#define SYMBOL_ERR_FILE_SIZE_IS_NULL			0x00000003
+#define SYMBOL_ERR_CANT_ALLOC_MEMORY_NEW		0x00000004
+#define SYMBOL_ERR_INVALID_FILE_ARCHITECTURE	0x00000005
+#define SYMBOL_ERR_CANT_ALLOC_MEMORY			0x00000006
+#define SYMBOL_ERR_NO_PDB_DEBUG_DATA			0x00000007
+#define SYMBOL_ERR_CANT_GET_TEMP_PATH			0x00000008
+#define SYMBOL_ERR_CANT_CONVERT_PDB_GUID		0x00000009
+#define SYMBOL_ERR_GUID_TO_ANSI_FAILED			0x0000000A
+#define SYMBOL_ERR_DOWNLOAD_FAILED				0x0000000B
+#define SYMBOL_ERR_CANT_ACCESS_PDB_FILE			0x0000000C
+#define SYMBOL_ERR_CANT_OPEN_PDB_FILE			0x0000000D
+#define SYMBOL_ERR_IVNALID_SYMBOL_NAME			0x0000000E
+#define SYMBOL_ERR_CANT_OPEN_PROCESS			0x0000000F
+#define SYMBOL_ERR_SYM_INIT_FAIL				0x00000010
+#define SYMBOL_ERR_SYM_LOAD_TABLE				0x00000011
+#define SYMBOL_ERR_NOT_INITIALIZED				0x00000012
+#define SYMBOL_ERR_SYMBOL_SEARCH_FAILED			0x00000013
+
+class SYMBOL_PARSER
+{
+	HANDLE	m_hProcess;
+	bool	m_Initialized;
+
+public:
+
+	SYMBOL_PARSER();
+	~SYMBOL_PARSER();
+
+	DWORD Initialize(const std::string szModulePath, const std::string path, std::string & pdb_path_out, bool Redownload = false);
+	DWORD GetSymbolAddress(const char * szSymbolName, DWORD & RvaOut);
+};
+
+struct PdbInfo
+{
+	DWORD	Signature;
+	GUID	Guid;
+	DWORD	Age;
+	char	PdbFileName[1];
+};
