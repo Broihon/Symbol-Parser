@@ -6,6 +6,7 @@ and calculate RVAs of functions.
 ----
 
 x86 builds are compatible with x64 PEs
+
 x64 builds are compatible with x86 PEs
 
 ----
