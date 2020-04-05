@@ -3,10 +3,15 @@
 #pragma comment(lib, "DbgHelp.lib")
 #pragma comment(lib, "Urlmon.lib")
 
+#define ReCa reinterpret_cast
+
 SYMBOL_PARSER::SYMBOL_PARSER()
 {
-	m_Initialized	= false;
-	m_hProcess		= nullptr;
+	m_Initialized = false;
+	m_SymbolTable = 0;
+	m_Filesize = 0;
+	m_hPdbFile = nullptr;
+	m_hProcess = nullptr;
 
 }
 
@@ -14,15 +19,101 @@ SYMBOL_PARSER::~SYMBOL_PARSER()
 {
 	if (m_Initialized)
 	{
+		SymUnloadModule64(m_hProcess, m_SymbolTable);
+
 		SymCleanup(m_hProcess);
 
 		CloseHandle(m_hProcess);
+		CloseHandle(m_hPdbFile);
 
 		m_Initialized = false;
 	}
 }
 
-DWORD SYMBOL_PARSER::Initialize(const std::string szModulePath, const std::string path, std::string & pdb_path_out, bool Redownload)
+bool SYMBOL_PARSER::VerifyExistingPdb(GUID guid)
+{
+	std::ifstream f(m_szPdbPath.c_str(), std::ios::binary | std::ios::ate);
+	if (f.bad())
+	{
+		return false;
+	}
+
+	size_t size_on_disk = static_cast<size_t>(f.tellg());
+	if (!size_on_disk)
+	{
+		f.close();
+
+		return false;
+	}
+
+	char * pdb_raw = new char[size_on_disk];
+	if (!pdb_raw)
+	{
+		f.close();
+
+		return false;
+	}
+
+	f.seekg(std::ios::beg);
+	f.read(pdb_raw, size_on_disk);
+	f.close();
+
+	if (size_on_disk < sizeof(PDBHeader7))
+	{
+		delete[] pdb_raw;
+
+		return false;
+	}
+
+	auto * pPDBHeader = ReCa<PDBHeader7*>(pdb_raw);
+
+	int min_file_size = (int)pPDBHeader->root_stream_page_number_list_number * pPDBHeader->page_size + pPDBHeader->root_stream_size;
+	if (size_on_disk < (size_t)min_file_size)
+	{
+		delete[] pdb_raw;
+
+		return false;
+	}
+
+	int * pRootPageNumber = ReCa<int*>(pdb_raw + (size_t)pPDBHeader->root_stream_page_number_list_number * pPDBHeader->page_size);
+	auto * pRootStream = ReCa<RootStream7*>(pdb_raw + (size_t)(*pRootPageNumber) * pPDBHeader->page_size);
+	
+	std::map<int, std::vector<int>> streams;
+	int current_page_number = 0;
+	
+	for (int i = 0; i != pRootStream->num_streams; ++i)
+	{
+		int current_size = pRootStream->stream_sizes[i] == 0xFFFFFFFF ? 0 : pRootStream->stream_sizes[i];
+
+		int current_page_count = current_size / pPDBHeader->page_size;
+		if (current_size % pPDBHeader->page_size)
+		{
+			++current_page_count;
+		}
+
+		std::vector<int> numbers;
+
+		for (int j = 0; j != current_page_count; ++j, ++current_page_number)
+		{
+			numbers.push_back(pRootStream->stream_sizes[pRootStream->num_streams + current_page_number]);
+		}
+
+		streams.insert({ i, numbers });
+	}
+
+	auto pdb_info_stream = streams.at(1);
+	auto pdb_info_page_index = pdb_info_stream.at(0);
+
+	auto * stram_data = ReCa<GUID_StreamData*>(pdb_raw + (size_t)(pdb_info_page_index) * pPDBHeader->page_size);
+
+	int guid_eq = memcmp(&stram_data->guid, &guid, sizeof(GUID));
+
+	delete[] pdb_raw;
+	
+	return (guid_eq == 0);
+}
+
+DWORD SYMBOL_PARSER::Initialize(const std::string szModulePath, const std::string path, std::string * pdb_path_out, bool Redownload)
 {
 	if (m_Initialized)
 	{
@@ -52,25 +143,27 @@ DWORD SYMBOL_PARSER::Initialize(const std::string szModulePath, const std::strin
 	}
 
 	File.seekg(0, std::ios::beg);
-	File.read(reinterpret_cast<char *>(pRawData), FileSize);
+	File.read(ReCa<char *>(pRawData), FileSize);
 	File.close();
 
-	IMAGE_DOS_HEADER * pDos = reinterpret_cast<IMAGE_DOS_HEADER *>(pRawData);
-	IMAGE_NT_HEADERS * pNT = reinterpret_cast<IMAGE_NT_HEADERS *>(pRawData + pDos->e_lfanew);
-	IMAGE_FILE_HEADER * pFile = &pNT->FileHeader;
+	IMAGE_DOS_HEADER	* pDos	= ReCa<IMAGE_DOS_HEADER*>(pRawData);
+	IMAGE_NT_HEADERS	* pNT	= ReCa<IMAGE_NT_HEADERS*>(pRawData + pDos->e_lfanew);
+	IMAGE_FILE_HEADER	* pFile = &pNT->FileHeader;
 
 	IMAGE_OPTIONAL_HEADER64 * pOpt64 = nullptr;
 	IMAGE_OPTIONAL_HEADER32 * pOpt32 = nullptr;
-	bool WoW64 = false;
+
+
+	bool x86 = false;
 
 	if (pFile->Machine == IMAGE_FILE_MACHINE_AMD64)
 	{
-		pOpt64 = reinterpret_cast<IMAGE_OPTIONAL_HEADER64 *>(&pNT->OptionalHeader);
+		pOpt64 = ReCa<IMAGE_OPTIONAL_HEADER64 *>(&pNT->OptionalHeader);
 	}
 	else if (pFile->Machine == IMAGE_FILE_MACHINE_I386)
 	{
-		pOpt32 = reinterpret_cast<IMAGE_OPTIONAL_HEADER32 *>(&pNT->OptionalHeader);
-		WoW64 = true;
+		pOpt32 = ReCa<IMAGE_OPTIONAL_HEADER32 *>(&pNT->OptionalHeader);
+		x86 = true;
 	}
 	else
 	{
@@ -79,8 +172,8 @@ DWORD SYMBOL_PARSER::Initialize(const std::string szModulePath, const std::strin
 		return SYMBOL_ERR_INVALID_FILE_ARCHITECTURE;
 	}
 
-	DWORD ImageSize = WoW64 ? pOpt32->SizeOfImage : pOpt64->SizeOfImage;
-	BYTE * pLocalImageBase = (BYTE *)VirtualAlloc(nullptr, ImageSize, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+	DWORD ImageSize = x86 ? pOpt32->SizeOfImage : pOpt64->SizeOfImage;
+	BYTE * pLocalImageBase = ReCa<BYTE*>(VirtualAlloc(nullptr, ImageSize, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
 	if (!pLocalImageBase)
 	{
 		delete[] pRawData;
@@ -88,7 +181,7 @@ DWORD SYMBOL_PARSER::Initialize(const std::string szModulePath, const std::strin
 		return SYMBOL_ERR_CANT_ALLOC_MEMORY;
 	}
 
-	memcpy(pLocalImageBase, pRawData, WoW64 ? pOpt32->SizeOfHeaders : pOpt64->SizeOfHeaders);
+	memcpy(pLocalImageBase, pRawData, x86 ? pOpt32->SizeOfHeaders : pOpt64->SizeOfHeaders);
 
 	auto * pCurrentSectionHeader = IMAGE_FIRST_SECTION(pNT);
 	for (UINT i = 0; i != pFile->NumberOfSections; ++i, ++pCurrentSectionHeader)
@@ -100,7 +193,7 @@ DWORD SYMBOL_PARSER::Initialize(const std::string szModulePath, const std::strin
 	}
 
 	IMAGE_DATA_DIRECTORY * pDataDir = nullptr;
-	if (WoW64)
+	if (x86)
 	{
 		pDataDir = &pOpt32->DataDirectory[IMAGE_DIRECTORY_ENTRY_DEBUG];
 	}
@@ -109,7 +202,7 @@ DWORD SYMBOL_PARSER::Initialize(const std::string szModulePath, const std::strin
 		pDataDir = &pOpt64->DataDirectory[IMAGE_DIRECTORY_ENTRY_DEBUG];
 	}
 
-	IMAGE_DEBUG_DIRECTORY * pDebugDir = reinterpret_cast<IMAGE_DEBUG_DIRECTORY*>(pLocalImageBase + pDataDir->VirtualAddress);
+	IMAGE_DEBUG_DIRECTORY * pDebugDir = ReCa<IMAGE_DEBUG_DIRECTORY *>(pLocalImageBase + pDataDir->VirtualAddress);
 
 	if (!pDataDir->Size || IMAGE_DEBUG_TYPE_CODEVIEW != pDebugDir->Type)
 	{
@@ -120,7 +213,7 @@ DWORD SYMBOL_PARSER::Initialize(const std::string szModulePath, const std::strin
 		return SYMBOL_ERR_NO_PDB_DEBUG_DATA;
 	}
 
-	PdbInfo * pdb_info = reinterpret_cast<PdbInfo*>(pLocalImageBase + pDebugDir->AddressOfRawData);
+	PdbInfo * pdb_info = ReCa<PdbInfo *>(pLocalImageBase + pDebugDir->AddressOfRawData);
 	if (pdb_info->Signature != 0x53445352)
 	{
 		VirtualFree(pLocalImageBase, 0, MEM_RELEASE);
@@ -129,18 +222,56 @@ DWORD SYMBOL_PARSER::Initialize(const std::string szModulePath, const std::strin
 
 		return SYMBOL_ERR_NO_PDB_DEBUG_DATA;
 	}
-
-	std::string pdb_path = path;
-	pdb_path += '\\';
-	pdb_path += pdb_info->PdbFileName;
 	
+	m_szPdbPath = path;
+
+	if (m_szPdbPath[m_szPdbPath.length() - 1] != '\\')
+	{
+		m_szPdbPath += '\\';
+	}
+
+	if (!CreateDirectoryA(m_szPdbPath.c_str(), nullptr))
+	{
+		if (GetLastError() != ERROR_ALREADY_EXISTS)
+		{
+			return SYMBOL_ERR_PATH_DOESNT_EXIST;
+		}
+	}
+
+	m_szPdbPath += x86 ? "x86\\" : "x64\\";
+
+	if (!CreateDirectoryA(m_szPdbPath.c_str(), nullptr))
+	{
+		if (GetLastError() != ERROR_ALREADY_EXISTS)
+		{
+			return SYMBOL_ERR_CANT_CREATE_DIRECTORY;
+		}
+	}
+
+	m_szPdbPath += pdb_info->PdbFileName;
+		
 	DWORD Filesize = 0;
 	WIN32_FILE_ATTRIBUTE_DATA file_attr_data{ 0 };
-	if (GetFileAttributesExA(pdb_path.c_str(), GetFileExInfoStandard, &file_attr_data) && !Redownload)
+	if (GetFileAttributesExA(m_szPdbPath.c_str(), GetFileExInfoStandard, &file_attr_data))
 	{
 		Filesize = file_attr_data.nFileSizeLow;
-	}
+
+		if (!Redownload && !VerifyExistingPdb(pdb_info->Guid))
+		{
+			Redownload = true;
+		}
+
+		if (Redownload)
+		{
+			DeleteFileA(m_szPdbPath.c_str());
+		}
+	}	
 	else
+	{
+		Redownload = true;
+	}
+
+	if (Redownload)
 	{
 		wchar_t w_GUID[100]{ 0 };
 		if (!StringFromGUID2(pdb_info->Guid, w_GUID, 100))
@@ -151,7 +282,7 @@ DWORD SYMBOL_PARSER::Initialize(const std::string szModulePath, const std::strin
 
 			return SYMBOL_ERR_CANT_CONVERT_PDB_GUID;
 		}
-
+		
 		char a_GUID[100]{ 0 };
 		size_t l_GUID = 0;
 		if (wcstombs_s(&l_GUID, a_GUID, w_GUID, sizeof(a_GUID)) || !l_GUID)
@@ -183,9 +314,7 @@ DWORD SYMBOL_PARSER::Initialize(const std::string szModulePath, const std::strin
 		url += '/';
 		url += pdb_info->PdbFileName;
 
-		DeleteFileA(pdb_path.c_str());
-
-		if (FAILED(URLDownloadToFileA(nullptr, url.c_str(), pdb_path.c_str(), NULL, nullptr)))
+		if (FAILED(URLDownloadToFileA(nullptr, url.c_str(), m_szPdbPath.c_str(), NULL, nullptr)))
 		{
 			VirtualFree(pLocalImageBase, 0, MEM_RELEASE);
 
@@ -201,7 +330,7 @@ DWORD SYMBOL_PARSER::Initialize(const std::string szModulePath, const std::strin
 
 	if (!Filesize)
 	{
-		if (!GetFileAttributesExA(pdb_path.c_str(), GetFileExInfoStandard, &file_attr_data))
+		if (!GetFileAttributesExA(m_szPdbPath.c_str(), GetFileExInfoStandard, &file_attr_data))
 		{
 			return SYMBOL_ERR_CANT_ACCESS_PDB_FILE;
 		}
@@ -209,7 +338,7 @@ DWORD SYMBOL_PARSER::Initialize(const std::string szModulePath, const std::strin
 		Filesize = file_attr_data.nFileSizeLow;
 	}
 
-	HANDLE hPdbFile = CreateFileA(pdb_path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, NULL, nullptr);
+	HANDLE hPdbFile = CreateFileA(m_szPdbPath.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, NULL, nullptr);
 	if (hPdbFile == INVALID_HANDLE_VALUE)
 	{
 		return SYMBOL_ERR_CANT_OPEN_PDB_FILE;
@@ -223,7 +352,7 @@ DWORD SYMBOL_PARSER::Initialize(const std::string szModulePath, const std::strin
 		return SYMBOL_ERR_CANT_OPEN_PROCESS;
 	}
 
-	if (!SymInitialize(m_hProcess, pdb_path.c_str(), FALSE))
+	if (!SymInitialize(m_hProcess, m_szPdbPath.c_str(), FALSE))
 	{
 		CloseHandle(m_hProcess);
 		CloseHandle(hPdbFile);
@@ -233,7 +362,8 @@ DWORD SYMBOL_PARSER::Initialize(const std::string szModulePath, const std::strin
 
 	SymSetOptions(SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS | SYMOPT_AUTO_PUBLICS);
 
-	if (!SymLoadModule64(m_hProcess, nullptr, pdb_path.c_str(), nullptr, 0x10000000, Filesize))
+	m_SymbolTable = SymLoadModuleEx(m_hProcess, nullptr, m_szPdbPath.c_str(), nullptr, 0x10000000, Filesize, nullptr, NULL);
+	if (!m_SymbolTable)
 	{
 		SymCleanup(m_hProcess);
 
@@ -243,7 +373,10 @@ DWORD SYMBOL_PARSER::Initialize(const std::string szModulePath, const std::strin
 		return SYMBOL_ERR_SYM_LOAD_TABLE;
 	}
 
-	pdb_path_out = pdb_path;
+	if (pdb_path_out)
+	{
+		*pdb_path_out = m_szPdbPath;
+	}
 
 	m_Initialized = true;
 
