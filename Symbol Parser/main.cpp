@@ -20,7 +20,7 @@ int main()
 	std::string Out;
 
 	SYMBOL_PARSER symbol_parser;
-	DWORD dwSymRet = symbol_parser.Initialize(DllFile, current_directory, &Out, true);
+	DWORD dwSymRet = symbol_parser.Initialize(DllFile, current_directory, &Out, false);
 	if (dwSymRet != SYMBOL_ERR_SUCCESS)
 	{
 		printf("SYMBOL_PARSER::Initialize failed: 0x%08X\n", dwSymRet);
@@ -31,7 +31,7 @@ int main()
 	printf("Successfully initialized PDB:\n%s\n\n", Out.c_str());
 
 	DWORD out = 0;
-	dwSymRet = symbol_parser.GetSymbolAddress("RtlInsertInvertedFunctionTable", out);
+	dwSymRet = symbol_parser.GetSymbolAddress("LdrpMappingInfoIndex", out);
 	if (dwSymRet != SYMBOL_ERR_SUCCESS)
 	{
 		printf("SYMBOL_PARSER::GetSymbolAddress failed with %08X\n", dwSymRet);
