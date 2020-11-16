@@ -149,7 +149,7 @@ DWORD SYMBOL_PARSER::Initialize(const std::string szModulePath, const std::strin
 	}
 
 	File.seekg(0, std::ios::beg);
-	File.read(ReCa<char *>(pRawData), FileSize);
+	File.read(ReCa<char*>(pRawData), FileSize);
 	File.close();
 
 	IMAGE_DOS_HEADER	* pDos	= ReCa<IMAGE_DOS_HEADER*>(pRawData);
@@ -164,11 +164,11 @@ DWORD SYMBOL_PARSER::Initialize(const std::string szModulePath, const std::strin
 
 	if (pFile->Machine == IMAGE_FILE_MACHINE_AMD64)
 	{
-		pOpt64 = ReCa<IMAGE_OPTIONAL_HEADER64 *>(&pNT->OptionalHeader);
+		pOpt64 = ReCa<IMAGE_OPTIONAL_HEADER64*>(&pNT->OptionalHeader);
 	}
 	else if (pFile->Machine == IMAGE_FILE_MACHINE_I386)
 	{
-		pOpt32 = ReCa<IMAGE_OPTIONAL_HEADER32 *>(&pNT->OptionalHeader);
+		pOpt32 = ReCa<IMAGE_OPTIONAL_HEADER32*>(&pNT->OptionalHeader);
 		x86 = true;
 	}
 	else
@@ -178,8 +178,8 @@ DWORD SYMBOL_PARSER::Initialize(const std::string szModulePath, const std::strin
 		return SYMBOL_ERR_INVALID_FILE_ARCHITECTURE;
 	}
 
-	DWORD ImageSize = x86 ? pOpt32->SizeOfImage : pOpt64->SizeOfImage;
-	BYTE * pLocalImageBase = ReCa<BYTE*>(VirtualAlloc(nullptr, ImageSize, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
+	DWORD ImageSize			= x86 ? pOpt32->SizeOfImage : pOpt64->SizeOfImage;
+	BYTE * pLocalImageBase	= ReCa<BYTE*>(VirtualAlloc(nullptr, ImageSize, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
 	if (!pLocalImageBase)
 	{
 		delete[] pRawData;
@@ -413,20 +413,15 @@ DWORD SYMBOL_PARSER::GetSymbolAddress(const char * szSymbolName, DWORD & RvaOut)
 	return SYMBOL_ERR_SUCCESS;
 }
 
-DWORD SYMBOL_PARSER::GetSymbolName(DWORD RvaIn, char * szSymbolNameOut)
+DWORD SYMBOL_PARSER::GetSymbolName(DWORD RvaIn, std::string & szSymbolNameOut)
 {
 	if (!m_Initialized)
 	{
 		return SYMBOL_ERR_NOT_INITIALIZED;
 	}
 
-	if (!szSymbolNameOut)
-	{
-		return SYMBOL_ERR_IVNALID_SYMBOL_NAME;
-	}
-
 	char raw_data[0x1000]{ 0 };
-	SYMBOL_INFO * psi = (SYMBOL_INFO *)raw_data;
+	SYMBOL_INFO * psi = (SYMBOL_INFO*)raw_data;
 	psi->SizeOfStruct = sizeof(SYMBOL_INFO);
 	psi->MaxNameLen = 1000;
 
@@ -434,7 +429,8 @@ DWORD SYMBOL_PARSER::GetSymbolName(DWORD RvaIn, char * szSymbolNameOut)
 	{
 		return SYMBOL_ERR_SYMBOL_SEARCH_FAILED;
 	}
-	printf("%s\n", psi->Name);
+	
+	szSymbolNameOut = psi->Name;
 
 	return SYMBOL_ERR_SUCCESS;
 }

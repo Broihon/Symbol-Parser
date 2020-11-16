@@ -29,6 +29,7 @@
 #define SYMBOL_ERR_SYM_LOAD_TABLE				0x00000013
 #define SYMBOL_ERR_NOT_INITIALIZED				0x00000014
 #define SYMBOL_ERR_SYMBOL_SEARCH_FAILED			0x00000015
+#define SYMBOL_ERR_BUFFER_TOO_SMALL				0x00000016
 
 class SYMBOL_PARSER
 {
@@ -52,7 +53,7 @@ public:
 
 	DWORD Initialize(const std::string szModulePath, const std::string path, std::string * pdb_path_out, bool Redownload = false);
 	DWORD GetSymbolAddress(const char * szSymbolName, DWORD & RvaOut);
-	DWORD GetSymbolName(DWORD RvaIn, char * szSymbolNameOut);
+	DWORD GetSymbolName(DWORD RvaIn, std::string & szSymbolNameOut);
 };
 
 //Thanks mambda
