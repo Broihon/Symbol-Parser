@@ -30,7 +30,7 @@ SYMBOL_PARSER::~SYMBOL_PARSER()
 	}
 }
 
-bool SYMBOL_PARSER::VerifyExistingPdb(GUID guid)
+bool SYMBOL_PARSER::VerifyExistingPdb(const GUID & guid)
 {
 	std::ifstream f(m_szPdbPath.c_str(), std::ios::binary | std::ios::ate);
 	if (f.bad())
@@ -67,16 +67,22 @@ bool SYMBOL_PARSER::VerifyExistingPdb(GUID guid)
 
 	auto * pPDBHeader = ReCa<PDBHeader7*>(pdb_raw);
 
-	int min_file_size = (int)pPDBHeader->root_stream_page_number_list_number * pPDBHeader->page_size + pPDBHeader->root_stream_size;
-	if (size_on_disk < (size_t)min_file_size)
+	if (memcmp(pPDBHeader->signature, "Microsoft C/C++ MSF 7.00\r\n\x1A""DS\0\0\0", sizeof(PDBHeader7::signature)))
 	{
 		delete[] pdb_raw;
 
 		return false;
 	}
 
-	int * pRootPageNumber = ReCa<int*>(pdb_raw + (size_t)pPDBHeader->root_stream_page_number_list_number * pPDBHeader->page_size);
-	auto * pRootStream = ReCa<RootStream7*>(pdb_raw + (size_t)(*pRootPageNumber) * pPDBHeader->page_size);
+	if (size_on_disk < (size_t)pPDBHeader->page_size * pPDBHeader->file_page_count)
+	{
+		delete[] pdb_raw;
+
+		return false;
+	}
+
+	int		* pRootPageNumber	= ReCa<int*>(pdb_raw + (size_t)pPDBHeader->root_stream_page_number_list_number * pPDBHeader->page_size);
+	auto	* pRootStream		= ReCa<RootStream7*>(pdb_raw + (size_t)(*pRootPageNumber) * pPDBHeader->page_size);
 	
 	std::map<int, std::vector<int>> streams;
 	int current_page_number = 0;
@@ -403,6 +409,32 @@ DWORD SYMBOL_PARSER::GetSymbolAddress(const char * szSymbolName, DWORD & RvaOut)
 	}
 
 	RvaOut = (DWORD)(si.Address - si.ModBase);
+
+	return SYMBOL_ERR_SUCCESS;
+}
+
+DWORD SYMBOL_PARSER::GetSymbolName(DWORD RvaIn, char * szSymbolNameOut)
+{
+	if (!m_Initialized)
+	{
+		return SYMBOL_ERR_NOT_INITIALIZED;
+	}
+
+	if (!szSymbolNameOut)
+	{
+		return SYMBOL_ERR_IVNALID_SYMBOL_NAME;
+	}
+
+	char raw_data[0x1000]{ 0 };
+	SYMBOL_INFO * psi = (SYMBOL_INFO *)raw_data;
+	psi->SizeOfStruct = sizeof(SYMBOL_INFO);
+	psi->MaxNameLen = 1000;
+
+	if (!SymFromAddr(m_hProcess, (DWORD64)0x10000000 + RvaIn, nullptr, psi))
+	{
+		return SYMBOL_ERR_SYMBOL_SEARCH_FAILED;
+	}
+	printf("%s\n", psi->Name);
 
 	return SYMBOL_ERR_SUCCESS;
 }

@@ -43,7 +43,7 @@ class SYMBOL_PARSER
 
 	bool m_Initialized;
 
-	bool VerifyExistingPdb(GUID guid);
+	bool VerifyExistingPdb(const GUID & guid);
 
 public:
 
@@ -52,6 +52,7 @@ public:
 
 	DWORD Initialize(const std::string szModulePath, const std::string path, std::string * pdb_path_out, bool Redownload = false);
 	DWORD GetSymbolAddress(const char * szSymbolName, DWORD & RvaOut);
+	DWORD GetSymbolName(DWORD RvaIn, char * szSymbolNameOut);
 };
 
 //Thanks mambda

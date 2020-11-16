@@ -2,6 +2,22 @@
 
 #include <windows.h>
 
+typedef struct _UNICODE_STRING
+{
+	WORD		Length;
+	WORD		MaxLength;
+	wchar_t * szBuffer;
+} UNICODE_STRING, * PUNICODE_STRING;
+
+using f_LdrpApplyFileNameRedirection = NTSTATUS(__fastcall *)
+(
+	void *,
+	UNICODE_STRING * DllName,
+	void *,
+	UNICODE_STRING * OutputDllName,
+	BOOLEAN * sxs
+);
+
 int main()
 {
 	char current_directory[MAX_PATH]{ 0 };
@@ -30,8 +46,8 @@ int main()
 
 	printf("Successfully initialized PDB:\n%s\n\n", Out.c_str());
 
-	DWORD out = 0;
-	dwSymRet = symbol_parser.GetSymbolAddress("LdrpMappingInfoIndex", out);
+	DWORD RvaOut = 0;
+	dwSymRet = symbol_parser.GetSymbolAddress("RtlpWaitOnAddressWithTimeout", RvaOut);
 	if (dwSymRet != SYMBOL_ERR_SUCCESS)
 	{
 		printf("SYMBOL_PARSER::GetSymbolAddress failed with %08X\n", dwSymRet);
@@ -39,7 +55,11 @@ int main()
 		return 0;
 	}
 
-	printf("Located LdrpLoadDll at ntdll.dll+%08X\n", out);
-	
+	printf("%p\n", (void*)((UINT_PTR)GetModuleHandle(TEXT("ntdll.dll")) + RvaOut));
+
+	char xd[MAX_PATH]{ 0 };
+	symbol_parser.GetSymbolName(0x7598, xd);
+	printf("%s\n", xd);
+
 	return 0;
 }
