@@ -2,22 +2,6 @@
 
 #include <windows.h>
 
-typedef struct _UNICODE_STRING
-{
-	WORD		Length;
-	WORD		MaxLength;
-	wchar_t * szBuffer;
-} UNICODE_STRING, * PUNICODE_STRING;
-
-using f_LdrpApplyFileNameRedirection = NTSTATUS(__fastcall *)
-(
-	void *,
-	UNICODE_STRING * DllName,
-	void *,
-	UNICODE_STRING * OutputDllName,
-	BOOLEAN * sxs
-);
-
 int main()
 {
 	char current_directory[MAX_PATH]{ 0 };
