@@ -30,6 +30,13 @@
 #define SYMBOL_ERR_NOT_INITIALIZED				0x00000014
 #define SYMBOL_ERR_SYMBOL_SEARCH_FAILED			0x00000015
 #define SYMBOL_ERR_BUFFER_TOO_SMALL				0x00000016
+#define SYMBOL_ERR_SYM_ENUM_SYMBOLS_FAILED		0x00000017
+
+struct SYM_INFO_COMPACT
+{
+	std::string szSymbol;
+	DWORD RVA;
+};
 
 class SYMBOL_PARSER
 {
@@ -44,6 +51,8 @@ class SYMBOL_PARSER
 
 	bool m_Initialized;
 
+	DWORD m_LastWin32Error;
+
 	bool VerifyExistingPdb(const GUID & guid);
 
 public:
@@ -51,9 +60,14 @@ public:
 	SYMBOL_PARSER();
 	~SYMBOL_PARSER();
 
+	static const DWORD SymbolBase = 0x10000000;
+
 	DWORD Initialize(const std::string szModulePath, const std::string path, std::string * pdb_path_out, bool Redownload = false);
 	DWORD GetSymbolAddress(const char * szSymbolName, DWORD & RvaOut);
 	DWORD GetSymbolName(DWORD RvaIn, std::string & szSymbolNameOut);
+	DWORD EnumSymbols(const char * szFilter, std::vector<SYM_INFO_COMPACT> & info);
+
+	DWORD LastError();
 };
 
 //Thanks mambda

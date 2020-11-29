@@ -68,5 +68,13 @@ int main()
 
 	printf("Symbolname of ntdll.dll+%08X is %s\n", RvaOut, name_out.c_str());
 
+	std::vector<SYM_INFO_COMPACT> info;
+	symbol_parser.EnumSymbols("LdrpLoad*", info);
+
+	for (auto & i : info)
+	{
+		printf("ntdll.dl+%08X: %s\n", i.RVA, i.szSymbol.c_str());
+	}
+
 	return 0;
 }

@@ -12,7 +12,7 @@ SYMBOL_PARSER::SYMBOL_PARSER()
 	m_Filesize = 0;
 	m_hPdbFile = nullptr;
 	m_hProcess = nullptr;
-
+	m_LastWin32Error = 0;
 }
 
 SYMBOL_PARSER::~SYMBOL_PARSER()
@@ -107,8 +107,7 @@ bool SYMBOL_PARSER::VerifyExistingPdb(const GUID & guid)
 		streams.insert({ i, numbers });
 	}
 
-	auto pdb_info_stream = streams.at(1);
-	auto pdb_info_page_index = pdb_info_stream.at(0);
+	auto pdb_info_page_index = streams.at(1).at(0);
 
 	auto * stram_data = ReCa<GUID_StreamData*>(pdb_raw + (size_t)(pdb_info_page_index) * pPDBHeader->page_size);
 
@@ -182,6 +181,8 @@ DWORD SYMBOL_PARSER::Initialize(const std::string szModulePath, const std::strin
 	BYTE * pLocalImageBase	= ReCa<BYTE*>(VirtualAlloc(nullptr, ImageSize, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
 	if (!pLocalImageBase)
 	{
+		m_LastWin32Error = GetLastError();
+
 		delete[] pRawData;
 
 		return SYMBOL_ERR_CANT_ALLOC_MEMORY;
@@ -240,6 +241,8 @@ DWORD SYMBOL_PARSER::Initialize(const std::string szModulePath, const std::strin
 	{
 		if (GetLastError() != ERROR_ALREADY_EXISTS)
 		{
+			m_LastWin32Error = GetLastError();
+
 			return SYMBOL_ERR_PATH_DOESNT_EXIST;
 		}
 	}
@@ -250,6 +253,8 @@ DWORD SYMBOL_PARSER::Initialize(const std::string szModulePath, const std::strin
 	{
 		if (GetLastError() != ERROR_ALREADY_EXISTS)
 		{
+			m_LastWin32Error = GetLastError();
+
 			return SYMBOL_ERR_CANT_CREATE_DIRECTORY;
 		}
 	}
@@ -320,8 +325,11 @@ DWORD SYMBOL_PARSER::Initialize(const std::string szModulePath, const std::strin
 		url += '/';
 		url += pdb_info->PdbFileName;
 
-		if (FAILED(URLDownloadToFileA(nullptr, url.c_str(), m_szPdbPath.c_str(), NULL, nullptr)))
+		auto hr = URLDownloadToFileA(nullptr, url.c_str(), m_szPdbPath.c_str(), NULL, nullptr);
+		if (FAILED(hr))
 		{
+			m_LastWin32Error = hr;
+
 			VirtualFree(pLocalImageBase, 0, MEM_RELEASE);
 
 			delete[] pRawData;
@@ -338,6 +346,8 @@ DWORD SYMBOL_PARSER::Initialize(const std::string szModulePath, const std::strin
 	{
 		if (!GetFileAttributesExA(m_szPdbPath.c_str(), GetFileExInfoStandard, &file_attr_data))
 		{
+			m_LastWin32Error = GetLastError();
+
 			return SYMBOL_ERR_CANT_ACCESS_PDB_FILE;
 		}
 
@@ -347,12 +357,16 @@ DWORD SYMBOL_PARSER::Initialize(const std::string szModulePath, const std::strin
 	HANDLE hPdbFile = CreateFileA(m_szPdbPath.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, NULL, nullptr);
 	if (hPdbFile == INVALID_HANDLE_VALUE)
 	{
+		m_LastWin32Error = GetLastError();
+
 		return SYMBOL_ERR_CANT_OPEN_PDB_FILE;
 	}
 
 	m_hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, GetCurrentProcessId());
 	if (!m_hProcess)
 	{
+		m_LastWin32Error = GetLastError();
+
 		CloseHandle(hPdbFile);
 
 		return SYMBOL_ERR_CANT_OPEN_PROCESS;
@@ -360,6 +374,8 @@ DWORD SYMBOL_PARSER::Initialize(const std::string szModulePath, const std::strin
 
 	if (!SymInitialize(m_hProcess, m_szPdbPath.c_str(), FALSE))
 	{
+		m_LastWin32Error = GetLastError();
+
 		CloseHandle(m_hProcess);
 		CloseHandle(hPdbFile);
 
@@ -368,9 +384,11 @@ DWORD SYMBOL_PARSER::Initialize(const std::string szModulePath, const std::strin
 
 	SymSetOptions(SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS | SYMOPT_AUTO_PUBLICS);
 
-	m_SymbolTable = SymLoadModuleEx(m_hProcess, nullptr, m_szPdbPath.c_str(), nullptr, 0x10000000, Filesize, nullptr, NULL);
+	m_SymbolTable = SymLoadModuleEx(m_hProcess, nullptr, m_szPdbPath.c_str(), nullptr, SymbolBase, Filesize, nullptr, NULL);
 	if (!m_SymbolTable)
 	{
+		m_LastWin32Error = GetLastError();
+
 		SymCleanup(m_hProcess);
 
 		CloseHandle(m_hProcess);
@@ -405,6 +423,8 @@ DWORD SYMBOL_PARSER::GetSymbolAddress(const char * szSymbolName, DWORD & RvaOut)
 	si.SizeOfStruct = sizeof(SYMBOL_INFO);
 	if (!SymFromName(m_hProcess, szSymbolName, &si))
 	{
+		m_LastWin32Error = GetLastError();
+
 		return SYMBOL_ERR_SYMBOL_SEARCH_FAILED;
 	}
 
@@ -422,15 +442,45 @@ DWORD SYMBOL_PARSER::GetSymbolName(DWORD RvaIn, std::string & szSymbolNameOut)
 
 	char raw_data[0x1000]{ 0 };
 	SYMBOL_INFO * psi = (SYMBOL_INFO*)raw_data;
-	psi->SizeOfStruct = sizeof(SYMBOL_INFO);
-	psi->MaxNameLen = 1000;
+	psi->SizeOfStruct	= sizeof(SYMBOL_INFO);
+	psi->MaxNameLen		= 1000;
 
-	if (!SymFromAddr(m_hProcess, (DWORD64)0x10000000 + RvaIn, nullptr, psi))
+	if (!SymFromAddr(m_hProcess, (DWORD64)SymbolBase + RvaIn, nullptr, psi))
 	{
+		m_LastWin32Error = GetLastError();
+
 		return SYMBOL_ERR_SYMBOL_SEARCH_FAILED;
 	}
 	
 	szSymbolNameOut = psi->Name;
 
 	return SYMBOL_ERR_SUCCESS;
+}
+
+BOOL __stdcall EnumerateSymbolsCallback(SYMBOL_INFO * pSymInfo, ULONG SymbolSize, void * UserContext)
+{
+	UNREFERENCED_PARAMETER(SymbolSize);
+
+	auto * info = reinterpret_cast<std::vector<SYM_INFO_COMPACT>*>(UserContext);
+
+	info->push_back({ pSymInfo->Name, (pSymInfo->Address - SYMBOL_PARSER::SymbolBase) & 0xFFFFFFFF });
+
+	return TRUE;
+}
+
+DWORD SYMBOL_PARSER::EnumSymbols(const char * szFilter, std::vector<SYM_INFO_COMPACT> & info)
+{
+	if (!SymEnumSymbols(m_hProcess, (DWORD64)SymbolBase, szFilter, EnumerateSymbolsCallback, &info))
+	{
+		m_LastWin32Error = GetLastError();
+
+		return SYMBOL_ERR_SYM_ENUM_SYMBOLS_FAILED;
+	}
+	
+	return SYMBOL_ERR_SUCCESS;
+}
+
+DWORD SYMBOL_PARSER::LastError()
+{
+	return m_LastWin32Error;
 }
