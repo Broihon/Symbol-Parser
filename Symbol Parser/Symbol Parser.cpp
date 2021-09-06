@@ -158,7 +158,6 @@ DWORD SYMBOL_PARSER::Initialize(const std::string szModulePath, const std::strin
 	IMAGE_OPTIONAL_HEADER64 * pOpt64 = nullptr;
 	IMAGE_OPTIONAL_HEADER32 * pOpt32 = nullptr;
 
-
 	bool x86 = false;
 
 	if (pFile->Machine == IMAGE_FILE_MACHINE_AMD64)
@@ -443,7 +442,7 @@ DWORD SYMBOL_PARSER::GetSymbolName(DWORD RvaIn, std::string & szSymbolNameOut)
 	char raw_data[0x1000]{ 0 };
 	SYMBOL_INFO * psi = (SYMBOL_INFO*)raw_data;
 	psi->SizeOfStruct	= sizeof(SYMBOL_INFO);
-	psi->MaxNameLen		= 1000;
+	psi->MaxNameLen		= 0x1000;
 
 	if (!SymFromAddr(m_hProcess, (DWORD64)SymbolBase + RvaIn, nullptr, psi))
 	{
@@ -477,6 +476,30 @@ DWORD SYMBOL_PARSER::EnumSymbols(const char * szFilter, std::vector<SYM_INFO_COM
 		return SYMBOL_ERR_SYM_ENUM_SYMBOLS_FAILED;
 	}
 	
+	return SYMBOL_ERR_SUCCESS;
+}
+
+DWORD SYMBOL_PARSER::EnumSymbolsInRange(const char * szFilter, DWORD min_rva, DWORD max_rva, std::vector<SYM_INFO_COMPACT> & info)
+{
+	if (EnumSymbols(szFilter, info) != SYMBOL_ERR_SUCCESS)
+	{
+		m_LastWin32Error = GetLastError();
+
+		return SYMBOL_ERR_SYM_ENUM_SYMBOLS_FAILED;
+	}
+
+	for (int i = 0; i < info.size(); )
+	{
+		if (info[i].RVA >= max_rva && max_rva != 0xFFFFFFFF || info[i].RVA < min_rva && min_rva != 0xFFFFFFFF)
+		{
+			info.erase(info.begin() + i);
+		}
+		else
+		{
+			++i;
+		}
+	}
+
 	return SYMBOL_ERR_SUCCESS;
 }
 

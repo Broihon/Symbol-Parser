@@ -66,6 +66,7 @@ public:
 	DWORD GetSymbolAddress(const char * szSymbolName, DWORD & RvaOut);
 	DWORD GetSymbolName(DWORD RvaIn, std::string & szSymbolNameOut);
 	DWORD EnumSymbols(const char * szFilter, std::vector<SYM_INFO_COMPACT> & info);
+	DWORD EnumSymbolsInRange(const char * szFilter, DWORD min_rva, DWORD max_rva, std::vector<SYM_INFO_COMPACT> & info);
 
 	DWORD LastError();
 };
