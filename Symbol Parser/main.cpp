@@ -1,7 +1,6 @@
 #include "Symbol Parser.h"
 
-#include <windows.h>
-#include <algorithm>
+#include <Windows.h>
 
 auto constexpr TARGET_MODULE_PATH = "C:\\Windows\\System32\\";
 auto constexpr TARGET_MODULE_NAME = "ntdll.dll";
@@ -9,21 +8,21 @@ auto constexpr TARGET_MODULE_NAME = "ntdll.dll";
 //Symbol names to find
 std::vector<std::string> SYMBOL_NAMES =
 {
-	"RtlpAddVectoredHandler",
-	"LdrpLoadDllInternal",
-	"LdrpVectorHandlerList",
-	"LdrpInvertedFunctionTable",
-	"ThisFunctionDoesntExist"
+	"LdrpVectorHandlerList"
 };
 
 //Absolute address of symbol to identify
 //GetSymbolName takes an RVA, however for easier copy&pasting ADDRESSES is filled with absolute addresses
+//These example addresses won't work on your PC due to ASLR and potentially different ntdll.dll versions
 std::vector<ULONG_PTR> ADDRESSES =
 {
-	0xDEADBABE,
-	0xBAADF00D,
-	0x12345678,
-	0x7FF84962D500
+#ifdef _WIN64
+	0x7FFA63771010,
+	0x7FFE54E16ED0,
+#else
+	0xDEADBEEF,
+	0x73C0AD4C,
+#endif
 };
 
 int main()
@@ -60,7 +59,7 @@ int main()
 
 	printf("Searching for symbol names:\n");
 
-	for (auto i : SYMBOL_NAMES)
+	for (const auto & i : SYMBOL_NAMES)
 	{
 		DWORD RvaOut = 0;
 
@@ -81,7 +80,7 @@ int main()
 	{
 		std::string name_out;
 
-		DWORD RvaOut = i - mod_base;
+		DWORD RvaOut = (DWORD)(i - mod_base);
 		dwSymRet = symbol_parser.GetSymbolName(RvaOut, name_out); //GetSymbolName takes an RVA, however for easier copy&pasting ADDRESSES is filled with absolute addresses
 
 		if (dwSymRet != SYMBOL_ERR_SUCCESS)
@@ -97,36 +96,13 @@ int main()
 	printf("\n");	
 	
 	std::vector<SYM_INFO_COMPACT> info;
-	symbol_parser.EnumSymbols("*VectoredHandler*", info); //enumerate all symbols that contain the string "VectoredHandler"
-
-	//sort by symbol name lengths (ascending)
-	static auto sort_symbols_length = [](const SYM_INFO_COMPACT & lhs, const SYM_INFO_COMPACT & rhs)
-	{
-		return (lhs.szSymbol.length() < rhs.szSymbol.length());
-	};
-
-	//sort by name (ascending)
-	static auto sort_symbols_alpha = [](const SYM_INFO_COMPACT & lhs, const SYM_INFO_COMPACT & rhs)
-	{
-		return (_stricmp(lhs.szSymbol.c_str(), rhs.szSymbol.c_str()) < 0);
-	};
-
-	//sort by rva (ascending)
-	static auto sort_symbols_rva = [](const SYM_INFO_COMPACT & lhs, const SYM_INFO_COMPACT & rhs)
-	{		
-		return (lhs.RVA < rhs.RVA);
-	};
-
-	std::sort(info.begin(), info.end(), sort_symbols_rva);
-
+	symbol_parser.EnumSymbolsEx("*VectoredHandler*", info, SYMBOL_PARSER::SYMBOL_SORT::Name); //enumerate all symbols that contain the string "VectoredHandler" and sort by name
 	for (const auto & i : info)
 	{
 		printf("%s+%08X: %s\n", TARGET_MODULE_NAME, i.RVA, i.szSymbol.c_str());
 	}
-		
+	
 	printf("count = %d\n", (int)info.size());
-
-	Sleep(-1);
 
 	return 0;
 }

@@ -1,10 +1,13 @@
 #pragma once
 
 #include <Windows.h>
-#include <string>
+
+#include <algorithm>
 #include <DbgHelp.h>
 #include <fstream>
+#include <functional>
 #include <map>
+#include <string>
 #include <vector>
 
 #define SYMBOL_ERR_SUCCESS						0x00000000
@@ -17,7 +20,6 @@
 #define SYMBOL_ERR_NO_PDB_DEBUG_DATA			0x00000007
 #define SYMBOL_ERR_PATH_DOESNT_EXIST			0x00000008
 #define SYMBOL_ERR_CANT_CREATE_DIRECTORY		0x00000009
-#define SYMBOL_ERR_CANT_GET_TEMP_PATH			0x0000000A
 #define SYMBOL_ERR_CANT_CONVERT_PDB_GUID		0x0000000B
 #define SYMBOL_ERR_GUID_TO_ANSI_FAILED			0x0000000C
 #define SYMBOL_ERR_DOWNLOAD_FAILED				0x0000000D
@@ -29,7 +31,6 @@
 #define SYMBOL_ERR_SYM_LOAD_TABLE				0x00000013
 #define SYMBOL_ERR_NOT_INITIALIZED				0x00000014
 #define SYMBOL_ERR_SYMBOL_SEARCH_FAILED			0x00000015
-#define SYMBOL_ERR_BUFFER_TOO_SMALL				0x00000016
 #define SYMBOL_ERR_SYM_ENUM_SYMBOLS_FAILED		0x00000017
 
 struct SYM_INFO_COMPACT
@@ -55,18 +56,44 @@ class SYMBOL_PARSER
 
 	bool VerifyExistingPdb(const GUID & guid);
 
+	static constexpr auto sort_symbols_rva = [](const SYM_INFO_COMPACT & lhs, const SYM_INFO_COMPACT & rhs)
+	{		
+		return (lhs.RVA < rhs.RVA);
+	};
+
+	static constexpr auto sort_symbols_name = [](const SYM_INFO_COMPACT & lhs, const SYM_INFO_COMPACT & rhs)
+	{
+		return (_stricmp(lhs.szSymbol.c_str(), rhs.szSymbol.c_str()) < 0);
+	};
+
+	static constexpr auto sort_symbols_length = [](const SYM_INFO_COMPACT & lhs, const SYM_INFO_COMPACT & rhs)
+	{
+		return (lhs.szSymbol.length() < rhs.szSymbol.length());
+	};
+
 public:
+
+	enum class SYMBOL_SORT
+	{
+		None,
+		Rva,
+		Name,
+		Length
+	};
 
 	SYMBOL_PARSER();
 	~SYMBOL_PARSER();
 
 	static const DWORD SymbolBase = 0x10000000;
 
-	DWORD Initialize(const std::string szModulePath, const std::string path, std::string * pdb_path_out, bool Redownload = false);
+	DWORD Initialize(const std::string & szModulePath, const std::string & path, std::string * pdb_path_out, bool Redownload = false);
 	DWORD GetSymbolAddress(const char * szSymbolName, DWORD & RvaOut);
 	DWORD GetSymbolName(DWORD RvaIn, std::string & szSymbolNameOut);
 	DWORD EnumSymbols(const char * szFilter, std::vector<SYM_INFO_COMPACT> & info);
 	DWORD EnumSymbolsInRange(const char * szFilter, DWORD min_rva, DWORD max_rva, std::vector<SYM_INFO_COMPACT> & info);
+
+	DWORD EnumSymbolsEx(const char * szFilter, std::vector<SYM_INFO_COMPACT> & info, SYMBOL_SORT sort = SYMBOL_SORT::None, bool ascending = true);
+	DWORD EnumSymbolsInRangeEx(const char * szFilter, DWORD min_rva, DWORD max_rva, std::vector<SYM_INFO_COMPACT> & info, SYMBOL_SORT sort = SYMBOL_SORT::None, bool ascending = true);
 
 	DWORD LastError();
 };

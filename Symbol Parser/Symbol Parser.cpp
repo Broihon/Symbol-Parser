@@ -7,12 +7,12 @@
 
 SYMBOL_PARSER::SYMBOL_PARSER()
 {
-	m_Initialized = false;
-	m_SymbolTable = 0;
-	m_Filesize = 0;
-	m_hPdbFile = nullptr;
-	m_hProcess = nullptr;
-	m_LastWin32Error = 0;
+	m_Initialized		= false;
+	m_SymbolTable		= 0;
+	m_Filesize			= 0;
+	m_hPdbFile			= nullptr;
+	m_hProcess			= nullptr;
+	m_LastWin32Error	= 0;
 }
 
 SYMBOL_PARSER::~SYMBOL_PARSER()
@@ -65,7 +65,7 @@ bool SYMBOL_PARSER::VerifyExistingPdb(const GUID & guid)
 		return false;
 	}
 
-	auto * pPDBHeader = ReCa<PDBHeader7*>(pdb_raw);
+	auto * pPDBHeader = ReCa<PDBHeader7 *>(pdb_raw);
 
 	if (memcmp(pPDBHeader->signature, "Microsoft C/C++ MSF 7.00\r\n\x1A""DS\0\0\0", sizeof(PDBHeader7::signature)))
 	{
@@ -81,12 +81,12 @@ bool SYMBOL_PARSER::VerifyExistingPdb(const GUID & guid)
 		return false;
 	}
 
-	int		* pRootPageNumber	= ReCa<int*>(pdb_raw + (size_t)pPDBHeader->root_stream_page_number_list_number * pPDBHeader->page_size);
-	auto	* pRootStream		= ReCa<RootStream7*>(pdb_raw + (size_t)(*pRootPageNumber) * pPDBHeader->page_size);
-	
+	int * pRootPageNumber = ReCa<int *>(pdb_raw + (size_t)pPDBHeader->root_stream_page_number_list_number * pPDBHeader->page_size);
+	auto * pRootStream = ReCa<RootStream7 *>(pdb_raw + (size_t)(*pRootPageNumber) * pPDBHeader->page_size);
+
 	std::map<int, std::vector<int>> streams;
 	int current_page_number = 0;
-	
+
 	for (int i = 0; i != pRootStream->num_streams; ++i)
 	{
 		int current_size = pRootStream->stream_sizes[i] == 0xFFFFFFFF ? 0 : pRootStream->stream_sizes[i];
@@ -109,16 +109,16 @@ bool SYMBOL_PARSER::VerifyExistingPdb(const GUID & guid)
 
 	auto pdb_info_page_index = streams.at(1).at(0);
 
-	auto * stram_data = ReCa<GUID_StreamData*>(pdb_raw + (size_t)(pdb_info_page_index) * pPDBHeader->page_size);
+	auto * stram_data = ReCa<GUID_StreamData *>(pdb_raw + (size_t)(pdb_info_page_index)*pPDBHeader->page_size);
 
 	int guid_eq = memcmp(&stram_data->guid, &guid, sizeof(GUID));
 
 	delete[] pdb_raw;
-	
+
 	return (guid_eq == 0);
 }
 
-DWORD SYMBOL_PARSER::Initialize(const std::string szModulePath, const std::string path, std::string * pdb_path_out, bool Redownload)
+DWORD SYMBOL_PARSER::Initialize(const std::string & szModulePath, const std::string & path, std::string * pdb_path_out, bool Redownload)
 {
 	if (m_Initialized)
 	{
@@ -137,7 +137,7 @@ DWORD SYMBOL_PARSER::Initialize(const std::string szModulePath, const std::strin
 		return SYMBOL_ERR_FILE_SIZE_IS_NULL;
 	}
 
-	BYTE * pRawData = new BYTE[static_cast<size_t>(FileSize)];
+	BYTE * pRawData = new(std::nothrow) BYTE[static_cast<size_t>(FileSize)];
 	if (!pRawData)
 	{
 		delete[] pRawData;
@@ -148,12 +148,12 @@ DWORD SYMBOL_PARSER::Initialize(const std::string szModulePath, const std::strin
 	}
 
 	File.seekg(0, std::ios::beg);
-	File.read(ReCa<char*>(pRawData), FileSize);
+	File.read(ReCa<char *>(pRawData), FileSize);
 	File.close();
 
-	IMAGE_DOS_HEADER	* pDos	= ReCa<IMAGE_DOS_HEADER*>(pRawData);
-	IMAGE_NT_HEADERS	* pNT	= ReCa<IMAGE_NT_HEADERS*>(pRawData + pDos->e_lfanew);
-	IMAGE_FILE_HEADER	* pFile = &pNT->FileHeader;
+	IMAGE_DOS_HEADER	* pDos	= ReCa<IMAGE_DOS_HEADER *>(pRawData);
+	IMAGE_NT_HEADERS	* pNT	= ReCa<IMAGE_NT_HEADERS *>(pRawData + pDos->e_lfanew);
+	IMAGE_FILE_HEADER	* pFile	= &pNT->FileHeader;
 
 	IMAGE_OPTIONAL_HEADER64 * pOpt64 = nullptr;
 	IMAGE_OPTIONAL_HEADER32 * pOpt32 = nullptr;
@@ -162,11 +162,11 @@ DWORD SYMBOL_PARSER::Initialize(const std::string szModulePath, const std::strin
 
 	if (pFile->Machine == IMAGE_FILE_MACHINE_AMD64)
 	{
-		pOpt64 = ReCa<IMAGE_OPTIONAL_HEADER64*>(&pNT->OptionalHeader);
+		pOpt64 = ReCa<IMAGE_OPTIONAL_HEADER64 *>(&pNT->OptionalHeader);
 	}
 	else if (pFile->Machine == IMAGE_FILE_MACHINE_I386)
 	{
-		pOpt32 = ReCa<IMAGE_OPTIONAL_HEADER32*>(&pNT->OptionalHeader);
+		pOpt32 = ReCa<IMAGE_OPTIONAL_HEADER32 *>(&pNT->OptionalHeader);
 		x86 = true;
 	}
 	else
@@ -176,8 +176,8 @@ DWORD SYMBOL_PARSER::Initialize(const std::string szModulePath, const std::strin
 		return SYMBOL_ERR_INVALID_FILE_ARCHITECTURE;
 	}
 
-	DWORD ImageSize			= x86 ? pOpt32->SizeOfImage : pOpt64->SizeOfImage;
-	BYTE * pLocalImageBase	= ReCa<BYTE*>(VirtualAlloc(nullptr, ImageSize, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
+	DWORD ImageSize = x86 ? pOpt32->SizeOfImage : pOpt64->SizeOfImage;
+	BYTE * pLocalImageBase = ReCa<BYTE *>(VirtualAlloc(nullptr, ImageSize, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
 	if (!pLocalImageBase)
 	{
 		m_LastWin32Error = GetLastError();
@@ -228,7 +228,7 @@ DWORD SYMBOL_PARSER::Initialize(const std::string szModulePath, const std::strin
 
 		return SYMBOL_ERR_NO_PDB_DEBUG_DATA;
 	}
-	
+
 	m_szPdbPath = path;
 
 	if (m_szPdbPath[m_szPdbPath.length() - 1] != '\\')
@@ -259,7 +259,7 @@ DWORD SYMBOL_PARSER::Initialize(const std::string szModulePath, const std::strin
 	}
 
 	m_szPdbPath += pdb_info->PdbFileName;
-		
+
 	DWORD Filesize = 0;
 	WIN32_FILE_ATTRIBUTE_DATA file_attr_data{ 0 };
 	if (GetFileAttributesExA(m_szPdbPath.c_str(), GetFileExInfoStandard, &file_attr_data))
@@ -275,7 +275,7 @@ DWORD SYMBOL_PARSER::Initialize(const std::string szModulePath, const std::strin
 		{
 			DeleteFileA(m_szPdbPath.c_str());
 		}
-	}	
+	}
 	else
 	{
 		Redownload = true;
@@ -292,7 +292,7 @@ DWORD SYMBOL_PARSER::Initialize(const std::string szModulePath, const std::strin
 
 			return SYMBOL_ERR_CANT_CONVERT_PDB_GUID;
 		}
-		
+
 		char a_GUID[100]{ 0 };
 		size_t l_GUID = 0;
 		if (wcstombs_s(&l_GUID, a_GUID, w_GUID, sizeof(a_GUID)) || !l_GUID)
@@ -440,7 +440,7 @@ DWORD SYMBOL_PARSER::GetSymbolName(DWORD RvaIn, std::string & szSymbolNameOut)
 	}
 
 	char raw_data[0x1000]{ 0 };
-	SYMBOL_INFO * psi = (SYMBOL_INFO*)raw_data;
+	SYMBOL_INFO * psi = (SYMBOL_INFO *)raw_data;
 	psi->SizeOfStruct	= sizeof(SYMBOL_INFO);
 	psi->MaxNameLen		= 0x1000;
 
@@ -450,7 +450,7 @@ DWORD SYMBOL_PARSER::GetSymbolName(DWORD RvaIn, std::string & szSymbolNameOut)
 
 		return SYMBOL_ERR_SYMBOL_SEARCH_FAILED;
 	}
-	
+
 	szSymbolNameOut = psi->Name;
 
 	return SYMBOL_ERR_SUCCESS;
@@ -460,9 +460,9 @@ BOOL __stdcall EnumerateSymbolsCallback(SYMBOL_INFO * pSymInfo, ULONG SymbolSize
 {
 	UNREFERENCED_PARAMETER(SymbolSize);
 
-	auto * info = reinterpret_cast<std::vector<SYM_INFO_COMPACT>*>(UserContext);
+	auto * info = ReCa<std::vector<SYM_INFO_COMPACT> *>(UserContext);
 
-	info->push_back({ pSymInfo->Name, (pSymInfo->Address - SYMBOL_PARSER::SymbolBase) & 0xFFFFFFFF });
+	info->push_back(SYM_INFO_COMPACT{ pSymInfo->Name, (DWORD)((pSymInfo->Address - SYMBOL_PARSER::SymbolBase) & 0xFFFFFFFF) });
 
 	return TRUE;
 }
@@ -475,17 +475,16 @@ DWORD SYMBOL_PARSER::EnumSymbols(const char * szFilter, std::vector<SYM_INFO_COM
 
 		return SYMBOL_ERR_SYM_ENUM_SYMBOLS_FAILED;
 	}
-	
+
 	return SYMBOL_ERR_SUCCESS;
 }
 
 DWORD SYMBOL_PARSER::EnumSymbolsInRange(const char * szFilter, DWORD min_rva, DWORD max_rva, std::vector<SYM_INFO_COMPACT> & info)
 {
-	if (EnumSymbols(szFilter, info) != SYMBOL_ERR_SUCCESS)
+	auto ret = EnumSymbols(szFilter, info);
+	if (ret != SYMBOL_ERR_SUCCESS)
 	{
-		m_LastWin32Error = GetLastError();
-
-		return SYMBOL_ERR_SYM_ENUM_SYMBOLS_FAILED;
+		return ret;
 	}
 
 	for (int i = 0; i < info.size(); )
@@ -498,6 +497,84 @@ DWORD SYMBOL_PARSER::EnumSymbolsInRange(const char * szFilter, DWORD min_rva, DW
 		{
 			++i;
 		}
+	}
+
+	return SYMBOL_ERR_SUCCESS;
+}
+
+DWORD SYMBOL_PARSER::EnumSymbolsEx(const char * szFilter, std::vector<SYM_INFO_COMPACT> & info, SYMBOL_SORT sort, bool ascending)
+{
+	DWORD ret = EnumSymbols(szFilter, info);
+	if (ret != SYMBOL_ERR_SUCCESS)
+	{
+		return ret;
+	}
+
+	if (sort == SYMBOL_SORT::None)
+	{
+		return ret;
+	}
+
+	switch (sort)
+	{
+		case SYMBOL_PARSER::SYMBOL_SORT::Rva:
+			std::sort(info.begin(), info.end(), sort_symbols_rva);
+			break;
+
+		case SYMBOL_PARSER::SYMBOL_SORT::Name:
+			std::sort(info.begin(), info.end(), sort_symbols_name);
+			break;
+
+		case SYMBOL_PARSER::SYMBOL_SORT::Length:
+			std::sort(info.begin(), info.end(), sort_symbols_length);
+			break;
+
+		default:
+			break;
+	}
+
+	if (!ascending)
+	{
+		std::reverse(info.begin(), info.end());
+	}
+
+	return SYMBOL_ERR_SUCCESS;
+}
+
+DWORD SYMBOL_PARSER::EnumSymbolsInRangeEx(const char * szFilter, DWORD min_rva, DWORD max_rva, std::vector<SYM_INFO_COMPACT> & info, SYMBOL_SORT sort, bool ascending)
+{
+	DWORD ret = EnumSymbolsInRange(szFilter, min_rva, max_rva, info);
+	if (ret != SYMBOL_ERR_SUCCESS)
+	{
+		return ret;
+	}
+
+	if (sort == SYMBOL_SORT::None)
+	{
+		return ret;
+	}
+
+	switch (sort)
+	{
+		case SYMBOL_PARSER::SYMBOL_SORT::Rva:
+			std::sort(info.begin(), info.end(), sort_symbols_rva);
+			break;
+
+		case SYMBOL_PARSER::SYMBOL_SORT::Name:
+			std::sort(info.begin(), info.end(), sort_symbols_name);
+			break;
+
+		case SYMBOL_PARSER::SYMBOL_SORT::Length:
+			std::sort(info.begin(), info.end(), sort_symbols_length);
+			break;
+
+		default:
+			break;
+	}
+
+	if (!ascending)
+	{
+		std::reverse(info.begin(), info.end());
 	}
 
 	return SYMBOL_ERR_SUCCESS;
