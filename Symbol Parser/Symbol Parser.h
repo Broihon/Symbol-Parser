@@ -32,6 +32,7 @@
 #define SYMBOL_ERR_NOT_INITIALIZED				0x00000014
 #define SYMBOL_ERR_SYMBOL_SEARCH_FAILED			0x00000015
 #define SYMBOL_ERR_SYM_ENUM_SYMBOLS_FAILED		0x00000017
+#define SYMOL_ERR_STRING_CONVERSION_FAILED		0x00000018
 
 struct SYM_INFO_COMPACT
 {
@@ -41,18 +42,14 @@ struct SYM_INFO_COMPACT
 
 class SYMBOL_PARSER
 {
-	HANDLE m_hProcess;
-
-	HANDLE		m_hPdbFile;
-	std::string	m_szPdbPath;
-	DWORD		m_Filesize;
-	DWORD64		m_SymbolTable;
-
-	std::string m_szModulePath;
-
-	bool m_Initialized;
-
-	DWORD m_LastWin32Error;
+	HANDLE			m_hProcess;
+	HANDLE			m_hPdbFile;
+	std::wstring	m_szPdbPath;
+	DWORD			m_Filesize;
+	DWORD64			m_SymbolTable;
+	std::wstring	m_szModulePath;
+	bool			m_Initialized;
+	DWORD			m_LastWin32Error;
 
 	bool VerifyExistingPdb(const GUID & guid);
 
@@ -72,6 +69,7 @@ class SYMBOL_PARSER
 	};
 
 public:
+	static const DWORD SymbolBase = 0x10000000;
 
 	enum class SYMBOL_SORT
 	{
@@ -84,16 +82,16 @@ public:
 	SYMBOL_PARSER();
 	~SYMBOL_PARSER();
 
-	static const DWORD SymbolBase = 0x10000000;
-
-	DWORD Initialize(const std::string & szModulePath, const std::string & path, std::string * pdb_path_out, bool Redownload = false);
-	DWORD GetSymbolAddress(const char * szSymbolName, DWORD & RvaOut);
+	DWORD Initialize(const std::wstring & szModulePath, const std::wstring & path, std::wstring * pdb_path_out, bool Redownload = false);
+	
+	DWORD GetSymbolAddress(std::string szSymbolName, DWORD & RvaOut);
 	DWORD GetSymbolName(DWORD RvaIn, std::string & szSymbolNameOut);
-	DWORD EnumSymbols(const char * szFilter, std::vector<SYM_INFO_COMPACT> & info);
-	DWORD EnumSymbolsInRange(const char * szFilter, DWORD min_rva, DWORD max_rva, std::vector<SYM_INFO_COMPACT> & info);
 
-	DWORD EnumSymbolsEx(const char * szFilter, std::vector<SYM_INFO_COMPACT> & info, SYMBOL_SORT sort = SYMBOL_SORT::None, bool ascending = true);
-	DWORD EnumSymbolsInRangeEx(const char * szFilter, DWORD min_rva, DWORD max_rva, std::vector<SYM_INFO_COMPACT> & info, SYMBOL_SORT sort = SYMBOL_SORT::None, bool ascending = true);
+	DWORD EnumSymbols(std::string szFilter, std::vector<SYM_INFO_COMPACT> & info);
+	DWORD EnumSymbolsInRange(std::string szFilter, DWORD min_rva, DWORD max_rva, std::vector<SYM_INFO_COMPACT> & info);
+
+	DWORD EnumSymbolsEx(std::string szFilter, std::vector<SYM_INFO_COMPACT> & info, SYMBOL_SORT sort = SYMBOL_SORT::None, bool ascending = true);
+	DWORD EnumSymbolsInRangeEx(std::string szFilter, DWORD min_rva, DWORD max_rva, std::vector<SYM_INFO_COMPACT> & info, SYMBOL_SORT sort = SYMBOL_SORT::None, bool ascending = true);
 
 	DWORD LastError();
 };
